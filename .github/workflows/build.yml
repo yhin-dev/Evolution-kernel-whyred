@@ -36,10 +36,8 @@ jobs:
         working-directory: kernel
         run: |
           GH="https://github.com"
-          git clone --depth=1 "$GH/tiann/KernelSU.git" KernelSU
+          git clone --depth=1 "$GH/rsuntk/KernelSU.git" KernelSU
           bash KernelSU/kernel/setup.sh
-          find -L drivers/kernelsu -name "*.c" -exec sed -i '/MODULE_IMPORT_NS/d' {} +
-          sed -i '/depends on.*KPROBES/d' drivers/kernelsu/Kconfig
 
       - name: Integrate NoMount v2.3.1
         working-directory: kernel
