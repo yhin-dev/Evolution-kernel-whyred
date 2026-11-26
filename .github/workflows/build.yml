@@ -1,0 +1,161 @@
+name: Build Evolution-Kernel Whyred (4.19)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Maximize Build Space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo apt-get update -y
+          sudo apt-get install -y bc bison build-essential ccache curl flex git libelf-dev libssl-dev python3 python-is-python3 unzip wget zip zstd
+
+      - name: Clone Kernel Source (user-why-red 4.19)
+        run: |
+          git clone --depth=1 -b back https://github.com kernel
+
+      - name: Download ZyC Clang (Latest)
+        run: |
+          mkdir -p clang
+          CLANG_URL=$(curl -s https://github.com | grep "browser_download_url.*tar.gz" | cut -d '"' -f 4 | head -n 1)
+          wget -q "$CLANG_URL" -O clang.tar.gz
+          tar -xzf clang.tar.gz -C clang
+          rm -f clang.tar.gz
+
+      - name: Integrate KernelSU-Next
+        working-directory: kernel
+        run: |
+          curl -LSs "https://githubusercontent.com" | bash -s next
+
+      - name: Integrate SuSFS (4.19)
+        working-directory: kernel
+        run: |
+          git clone --depth=1 -b kernel-4.19 https://gitlab.com susfs_repo
+          cp -r susfs_repo/kernel_patches/fs/* fs/
+          cp -r susfs_repo/kernel_patches/include/linux/* include/linux/
+          patch -p1 --forward < susfs_repo/kernel_patches/50_add_susfs_in_kernel-4.19.patch || true
+          rm -rf susfs_repo
+
+      - name: Integrate NoMount
+        working-directory: kernel
+        run: |
+          curl -LSs "https://githubusercontent.com" | bash - || echo "NoMount setup checked"
+
+      - name: Select Defconfig & Apply Daily/Gaming Tuning
+        working-directory: kernel
+        run: |
+          echo "=== Available Whyred Defconfigs ==="
+          find arch/arm64/configs -name "*whyred*"
+          
+          if [ -f "arch/arm64/configs/vendor/whyred-retrofit_defconfig" ]; then
+            DEFCONFIG="vendor/whyred-retrofit_defconfig"
+          elif [ -f "arch/arm64/configs/whyred-retrofit_defconfig" ]; then
+            DEFCONFIG="whyred-retrofit_defconfig"
+          elif [ -f "arch/arm64/configs/vendor/whyred-perf_defconfig" ]; then
+            DEFCONFIG="vendor/whyred-perf_defconfig"
+          else
+            DEFCONFIG="whyred_defconfig"
+          fi
+          echo "Selected DEFCONFIG: $DEFCONFIG"
+          echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
+
+          cat << 'EOF' >> arch/arm64/configs/$DEFCONFIG
+          CONFIG_KSU=y
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          CONFIG_NOMOUNT=y
+          CONFIG_HZ_300=y
+          CONFIG_TCP_CONG_ADVANCED=y
+          CONFIG_TCP_CONG_BBR=y
+          CONFIG_DEFAULT_BBR=y
+          CONFIG_DEFAULT_TCP_CONG="bbr"
+          CONFIG_NET_SCH_FQ_CODEL=y
+          EOF
+
+      - name: Compile Kernel
+        working-directory: kernel
+        run: |
+          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export KBUILD_BUILD_USER="yhin-dev"
+          export KBUILD_BUILD_HOST="Evolution-Build"
+
+          make O=out ARCH=arm64 $DEFCONFIG
+          make -j$(nproc --all) O=out \
+            ARCH=arm64 \
+            CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            Image.gz-dtb
+
+      - name: Setup AnyKernel3 & Package ZIP
+        run: |
+          IMAGE="kernel/out/arch/arm64/boot/Image.gz-dtb"
+          if [ ! -f "$IMAGE" ]; then
+            echo "ERROR: Image.gz-dtb tidak ditemukan! Build gagal."
+            exit 1
+          fi
+
+          git clone --depth=1 https://github.com AnyKernel3
+          cat << 'EOF' > AnyKernel3/anykernel.sh
+          ### AnyKernel3 Ramdisk Mod Script
+          ## osm0sis @ xda-developers
+
+          properties() { '
+          kernel.string=Evolution-Kernel by yhin-dev
+          do.devicecheck=1
+          do.modules=0
+          do.systemless=1
+          do.cleanup=1
+          do.cleanuponabort=0
+          device.name1=whyred
+          device.name2=Redmi Note 5
+          device.name3=Redmi Note 5 Pro
+          supported.versions=13 - 17
+          supported.patchlevels=
+          '; }
+
+          BLOCK=/dev/block/bootdevice/by-name/boot;
+          IS_SLOT_DEVICE=0;
+          RAMDISK_COMPRESSION=auto;
+          PATCH_VBMETA_FLAG=auto;
+
+          . tools/ak3-core.sh;
+
+          dump_boot;
+          write_boot;
+          EOF
+
+          cp "$IMAGE" AnyKernel3/
+          DATE=$(TZ=Asia/Jakarta date +"%Y%m%d")
+          ZIP_NAME="Evolution-Kernel-whyred-4.19-A13-A17-${DATE}.zip"
+          cd AnyKernel3
+          zip -r9 "../$ZIP_NAME" * -x .git README.md *placeholder
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: Upload Kernel Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP_NAME }}
+          path: ${{ env.ZIP_NAME }}
