@@ -35,9 +35,9 @@ jobs:
       - name: Integrate Official KernelSU
         working-directory: kernel
         run: |
-          GH="https://github.com"
-          git clone --depth=1 "$GH/rsuntk/KernelSU.git" KernelSU
-          bash KernelSU/kernel/setup.sh
+         GH="https://github.com"
+         git clone --depth=1 -b susfs-rksu "$GH/rsuntk/KernelSU.git" KernelSU
+         bash KernelSU/kernel/setup.sh susfs-rksu
 
       - name: Integrate NoMount v2.3.1
         working-directory: kernel
@@ -56,7 +56,6 @@ jobs:
           cp -r susfs_repo/kernel_patches/include/linux/* include/linux/
           patch -d kernelSU -p1 --forward -F 5 < susfs_repo/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch || true
           patch -p1 --forward -F 5 < susfs_repo/kernel_patches/50_add_susfs_in_kernel-4.19.patch || true
-          cat << 'EOF' >> drivers/kernelsu/Kconfig
 
           menu "KernelSU - SUSFS"
           config KSU_SUSFS
@@ -183,6 +182,8 @@ jobs:
           make O=out ARCH=arm64 $DEFCONFIG
 
           ./scripts/config --file out/.config \
+            -e KALLSYMS \
+            -e KALLSYMS_ALL \
             -e OVERLAY_FS \
             -e KSU \
             -e KSU_SUSFS \
