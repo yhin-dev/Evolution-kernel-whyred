@@ -19,12 +19,14 @@ jobs:
 
       - name: Clone Kernel Source (user-why-red 4.19)
         run: |
-          git clone --depth=1 -b back https://github.com kernel
+          GH="https://github.com"
+          git clone --depth=1 -b back "$GH/user-why-red/android_kernel_xiaomi_sdm660_419.git" kernel
 
       - name: Download ZyC Clang (Latest)
         run: |
           mkdir -p clang
-          CLANG_URL=$(curl -s https://github.com | grep "browser_download_url.*tar.gz" | cut -d '"' -f 4 | head -n 1)
+          API="https://github.com"
+          CLANG_URL=$(curl -s "$API" | grep "browser_download_url.*tar.gz" | cut -d '"' -f 4 | head -n 1)
           wget -q "$CLANG_URL" -O clang.tar.gz
           tar -xzf clang.tar.gz -C clang
           rm -f clang.tar.gz
@@ -32,12 +34,14 @@ jobs:
       - name: Integrate KernelSU-Next
         working-directory: kernel
         run: |
-          curl -LSs "https://githubusercontent.com" | bash -s next
+          RAW="https://githubusercontent.com"
+          curl -LSs "$RAW/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
 
       - name: Integrate SuSFS (4.19)
         working-directory: kernel
         run: |
-          git clone --depth=1 -b kernel-4.19 https://gitlab.com susfs_repo
+          GL="https://gitlab.com"
+          git clone --depth=1 -b kernel-4.19 "$GL/simonpunk/susfs4ksu.git" susfs_repo
           cp -r susfs_repo/kernel_patches/fs/* fs/
           cp -r susfs_repo/kernel_patches/include/linux/* include/linux/
           patch -p1 --forward < susfs_repo/kernel_patches/50_add_susfs_in_kernel-4.19.patch || true
@@ -46,7 +50,8 @@ jobs:
       - name: Integrate NoMount
         working-directory: kernel
         run: |
-          curl -LSs "https://githubusercontent.com" | bash - || echo "NoMount setup checked"
+          RAW="https://githubusercontent.com"
+          curl -LSs "$RAW/AnGgIt88/NoMount/main/setup.sh" | bash - || echo "NoMount setup checked"
 
       - name: Select Defconfig & Apply Daily/Gaming Tuning
         working-directory: kernel
@@ -117,7 +122,8 @@ jobs:
             exit 1
           fi
 
-          git clone --depth=1 https://github.com AnyKernel3
+          GH="https://github.com"
+          git clone --depth=1 "$GH/osm0sis/AnyKernel3.git" AnyKernel3
           cat << 'EOF' > AnyKernel3/anykernel.sh
           ### AnyKernel3 Ramdisk Mod Script
           ## osm0sis @ xda-developers
