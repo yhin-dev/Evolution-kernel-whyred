@@ -38,6 +38,7 @@ jobs:
           GH="https://github.com"
           git clone --depth=1 "$GH/tiann/KernelSU.git" KernelSU
           bash KernelSU/kernel/setup.sh
+          sed -i '/depends on.*KPROBES/d' drivers/kernelsu/Kconfig
 
       - name: Integrate NoMount v2.3.1
         working-directory: kernel
