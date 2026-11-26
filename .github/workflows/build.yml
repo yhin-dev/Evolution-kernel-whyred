@@ -70,15 +70,17 @@ jobs:
           with open("fs/namespace.c", "r") as f:
               code = f.read()
 
-          new_vfs = """#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-          \tif (unlikely(susfs_is_current_ksu_domain())) {
-          \t\tmnt = alloc_vfsmnt(name, true, 0);
+          def repl_vfs(m):
+              arg = m.group(1).strip()
+              return f"""#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+          \tif (unlikely(susfs_is_current_ksu_domain())) {{
+          \t\tmnt = alloc_vfsmnt({arg}, true, 0);
           \t\tgoto bypass_orig_flow;
-          \t}
-          \tmnt = alloc_vfsmnt(name, false, 0);
+          \t}}
+          \tmnt = alloc_vfsmnt({arg}, false, 0);
           bypass_orig_flow:
           #else
-          \tmnt = alloc_vfsmnt(name);
+          \tmnt = alloc_vfsmnt({arg});
           #endif"""
 
           new_clone = """#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
@@ -100,7 +102,7 @@ jobs:
           \tmnt = alloc_vfsmnt(old->mnt_devname);
           #endif"""
 
-          code, n1 = re.subn(r'^[ \t]*mnt\s*=\s*alloc_vfsmnt\s*\(\s*name\s*\)\s*;', new_vfs, code, count=1, flags=re.M)
+          code, n1 = re.subn(r'^[ \t]*mnt\s*=\s*alloc_vfsmnt\s*\(([^;]+)\)\s*;', repl_vfs, code, count=1, flags=re.M)
           code, n2 = re.subn(r'^[ \t]*mnt\s*=\s*alloc_vfsmnt\s*\(\s*old->mnt_devname\s*\)\s*;', new_clone, code, count=1, flags=re.M)
           assert n1 == 1 and n2 == 1, f"Failed: n1={n1}, n2={n2}"
 
