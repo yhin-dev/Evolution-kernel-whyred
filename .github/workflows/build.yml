@@ -30,6 +30,7 @@ jobs:
           git clone --depth=1 "$GH/Neutron-Toolchains/antman.git" .
           chmod +x antman
           ./antman -S
+          ./antman --patch=glibc
 
       - name: Integrate KernelSU-Next
         working-directory: kernel
