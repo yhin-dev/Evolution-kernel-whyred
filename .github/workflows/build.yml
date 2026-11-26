@@ -36,8 +36,8 @@ jobs:
         working-directory: kernel
         run: |
           GH="https://github.com"
-          git clone --depth=1 "$GH/rsuntk/KernelSU.git" KernelSU
-          bash KernelSU/kernel/setup.sh
+          git clone --depth=1 -b susfs-main "$GH/rsuntk/KernelSU.git" KernelSU
+          bash KernelSU/kernel/setup.sh susfs-main
 
       - name: Integrate NoMount v2.3.1
         working-directory: kernel
@@ -54,7 +54,6 @@ jobs:
           git clone --depth=1 -b kernel-4.19 "$GL/simonpunk/susfs4ksu.git" susfs_repo
           cp -r susfs_repo/kernel_patches/fs/* fs/
           cp -r susfs_repo/kernel_patches/include/linux/* include/linux/
-          patch -d kernelSU -p1 --forward -F 5 < susfs_repo/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch || true
           patch -p1 --forward -F 5 < susfs_repo/kernel_patches/50_add_susfs_in_kernel-4.19.patch || true
 
           python3 - << 'EOF'
