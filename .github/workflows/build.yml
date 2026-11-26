@@ -66,11 +66,10 @@ jobs:
           patch -p1 --forward -F 5 < susfs_repo/kernel_patches/50_add_susfs_in_kernel-4.19.patch || true
 
           python3 - << 'EOF'
+          import re
           with open("fs/namespace.c", "r") as f:
               code = f.read()
 
-          # Fix Hunk 7: vfs_kern_mount
-          old_vfs = "\tmnt = alloc_vfsmnt(name);\n\tif (!mnt)"
           new_vfs = """#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
           \tif (unlikely(susfs_is_current_ksu_domain())) {
           \t\tmnt = alloc_vfsmnt(name, true, 0);
@@ -80,11 +79,8 @@ jobs:
           bypass_orig_flow:
           #else
           \tmnt = alloc_vfsmnt(name);
-          #endif
-          \tif (!mnt)"""
+          #endif"""
 
-          # Fix Hunk 9: clone_mnt
-          old_clone = "\tmnt = alloc_vfsmnt(old->mnt_devname);\n\tif (!mnt)"
           new_clone = """#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
           \tbool is_current_ksu_domain = susfs_is_current_ksu_domain();
           \tbool is_current_zygote_domain = susfs_is_current_zygote_domain();
@@ -102,12 +98,11 @@ jobs:
           bypass_orig_flow:
           #else
           \tmnt = alloc_vfsmnt(old->mnt_devname);
-          #endif
-          \tif (!mnt)"""
+          #endif"""
 
-          assert old_vfs in code, "old_vfs not found in fs/namespace.c"
-          assert old_clone in code, "old_clone not found in fs/namespace.c"
-          code = code.replace(old_vfs, new_vfs, 1).replace(old_clone, new_clone, 1)
+          code, n1 = re.subn(r'^[ \t]*mnt\s*=\s*alloc_vfsmnt\s*\(\s*name\s*\)\s*;', new_vfs, code, count=1, flags=re.M)
+          code, n2 = re.subn(r'^[ \t]*mnt\s*=\s*alloc_vfsmnt\s*\(\s*old->mnt_devname\s*\)\s*;', new_clone, code, count=1, flags=re.M)
+          assert n1 == 1 and n2 == 1, f"Failed: n1={n1}, n2={n2}"
 
           with open("fs/namespace.c", "w") as f:
               f.write(code)
@@ -115,8 +110,6 @@ jobs:
           EOF
 
           rm -f fs/namespace.c.rej fs/namespace.c.orig
-          echo "=== Checking Remaining .rej Files ==="
-          find . -name "*.rej"
           rm -rf susfs_repo
 
       - name: Select Defconfig & Apply Daily/Gaming Tuning
