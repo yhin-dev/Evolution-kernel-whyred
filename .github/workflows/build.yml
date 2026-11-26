@@ -37,6 +37,7 @@ jobs:
         run: |
           GH="https://github.com"
           git clone --depth=1 "$GH/tiann/KernelSU.git" KernelSU
+          sed -i '/MODULE_IMPORT_NS/d' KernelSU/kernel/core/init.c
           bash KernelSU/kernel/setup.sh
           sed -i '/depends on.*KPROBES/d' drivers/kernelsu/Kconfig
 
