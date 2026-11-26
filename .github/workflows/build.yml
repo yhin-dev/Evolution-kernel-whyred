@@ -64,8 +64,59 @@ jobs:
           cp -r susfs_repo/kernel_patches/fs/* fs/
           cp -r susfs_repo/kernel_patches/include/linux/* include/linux/
           patch -p1 --forward -F 5 < susfs_repo/kernel_patches/50_add_susfs_in_kernel-4.19.patch || true
+
+          python3 - << 'EOF'
+          with open("fs/namespace.c", "r") as f:
+              code = f.read()
+
+          # Fix Hunk 7: vfs_kern_mount
+          old_vfs = "\tmnt = alloc_vfsmnt(name);\n\tif (!mnt)"
+          new_vfs = """#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+          \tif (unlikely(susfs_is_current_ksu_domain())) {
+          \t\tmnt = alloc_vfsmnt(name, true, 0);
+          \t\tgoto bypass_orig_flow;
+          \t}
+          \tmnt = alloc_vfsmnt(name, false, 0);
+          bypass_orig_flow:
+          #else
+          \tmnt = alloc_vfsmnt(name);
+          #endif
+          \tif (!mnt)"""
+
+          # Fix Hunk 9: clone_mnt
+          old_clone = "\tmnt = alloc_vfsmnt(old->mnt_devname);\n\tif (!mnt)"
+          new_clone = """#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+          \tbool is_current_ksu_domain = susfs_is_current_ksu_domain();
+          \tbool is_current_zygote_domain = susfs_is_current_zygote_domain();
+          \tif (unlikely(is_current_ksu_domain)) {
+          \t\tif (!(flag & CL_COPY_MNT_NS)) {
+          \t\t\tmnt = alloc_vfsmnt(old->mnt_devname, true, 0);
+          \t\t\tgoto bypass_orig_flow;
+          \t\t}
+          \t}
+          \tif (likely(is_current_zygote_domain) && old->mnt.susfs_mnt_id_backup) {
+          \t\tmnt = alloc_vfsmnt(old->mnt_devname, true, old->mnt.susfs_mnt_id_backup);
+          \t\tgoto bypass_orig_flow;
+          \t}
+          \tmnt = alloc_vfsmnt(old->mnt_devname, false, 0);
+          bypass_orig_flow:
+          #else
+          \tmnt = alloc_vfsmnt(old->mnt_devname);
+          #endif
+          \tif (!mnt)"""
+
+          assert old_vfs in code, "old_vfs not found in fs/namespace.c"
+          assert old_clone in code, "old_clone not found in fs/namespace.c"
+          code = code.replace(old_vfs, new_vfs, 1).replace(old_clone, new_clone, 1)
+
+          with open("fs/namespace.c", "w") as f:
+              f.write(code)
+          print("SUCCESS: fs/namespace.c SuSFS hooks applied cleanly!")
+          EOF
+
+          rm -f fs/namespace.c.rej fs/namespace.c.orig
           echo "=== Checking Remaining .rej Files ==="
-          find . -name "*.rej" -exec head -n 50 {} +
+          find . -name "*.rej"
           rm -rf susfs_repo
 
       - name: Select Defconfig & Apply Daily/Gaming Tuning
