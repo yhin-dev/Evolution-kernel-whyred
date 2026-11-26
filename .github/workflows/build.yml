@@ -25,11 +25,17 @@ jobs:
       - name: Download ZyC Clang (Latest)
         run: |
           mkdir -p clang
-          API="https://github.com"
-          CLANG_URL=$(curl -s "$API" | grep "browser_download_url.*tar.gz" | cut -d '"' -f 4 | head -n 1)
-          wget -q "$CLANG_URL" -O clang.tar.gz
-          tar -xzf clang.tar.gz -C clang
-          rm -f clang.tar.gz
+          APIBASE="https://github.com"
+          REPO="ZyCromerZ/Clang"
+          CLANG_URL=$(curl -s "$APIBASE/repos/$REPO/releases/latest" | grep -o 'https://[^"]*\.\(tar\.zst\|tar\.gz\)' | head -n 1)
+          echo "Downloading Clang from: $CLANG_URL"
+          wget -q "$CLANG_URL" -O clang_archive
+          tar -xf clang_archive -C clang
+          rm -f clang_archive
+          if [ ! -d "clang/bin" ]; then
+            SUBDIR=$(find clang -maxdepth 2 -type d -name "bin" | head -n 1 | xargs dirname)
+            mv "$SUBDIR"/* clang/
+          fi
 
       - name: Integrate KernelSU-Next
         working-directory: kernel
