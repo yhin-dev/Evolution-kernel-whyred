@@ -55,8 +55,10 @@ jobs:
           git clone --depth=1 -b kernel-4.19 "$GL/simonpunk/susfs4ksu.git" susfs_repo
           cp -r susfs_repo/kernel_patches/fs/* fs/
           cp -r susfs_repo/kernel_patches/include/linux/* include/linux/
-          patch -p1 --forward -F 5 < susfs_repo/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch || true
+          patch -d kernelSU -p1 --forward -F 5 < susfs_repo/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch || true
           patch -p1 --forward -F 5 < susfs_repo/kernel_patches/50_add_susfs_in_kernel-4.19.patch || true
+          sed -i '/depends on.*KPROBES/d; /depends on.*MAGIC_MOUNT/d' drivers/kernelsu/Kconfig
+
 
           python3 - << 'EOF'
           import re
