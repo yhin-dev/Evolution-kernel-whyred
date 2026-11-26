@@ -39,17 +39,20 @@ jobs:
           git clone --depth=1 "$GH/KernelSU-Next/KernelSU-Next.git" KernelSU-Next
           bash KernelSU-Next/kernel/setup.sh
 
-
       - name: Integrate NoMount
         working-directory: kernel
         run: |
           GH="https://github.com"
-          git clone --depth=1 "$GH/AnGgIt88/NoMount.git" nomount_repo
-          if [ -f "nomount_repo/setup.sh" ]; then
+          git clone --depth=1 "$GH/maxsteeel/nomount.git" nomount_repo
+          if [ -f "nomount_repo/kernel/setup.sh" ]; then
+            bash nomount_repo/kernel/setup.sh
+          elif [ -f "nomount_repo/setup.sh" ]; then
             bash nomount_repo/setup.sh
           else
-            cp -r nomount_repo/fs/* fs/ 2>/dev/null || true
-            cp -r nomount_repo/include/* include/ 2>/dev/null || true
+            mkdir -p fs/nomount
+            cp -r nomount_repo/kernel/src/* fs/nomount/ 2>/dev/null || cp -r nomount_repo/src/* fs/nomount/
+            grep -q "nomount" fs/Kconfig || sed -i '/endmenu/i source "fs/nomount/Kconfig"' fs/Kconfig
+            grep -q "nomount" fs/Makefile || echo 'obj-$(CONFIG_NOMOUNT) += nomount/' >> fs/Makefile
           fi
           rm -rf nomount_repo
 
