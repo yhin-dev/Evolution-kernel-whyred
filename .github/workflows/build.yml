@@ -22,20 +22,14 @@ jobs:
           GH="https://github.com"
           git clone --depth=1 -b back "$GH/user-why-red/android_kernel_xiaomi_sdm660_419.git" kernel
 
-      - name: Download ZyC Clang (Latest)
+      - name: Download Neutron Clang
         run: |
           mkdir -p clang
-          APIBASE="https://github.com"
-          REPO="ZyCromerZ/Clang"
-          CLANG_URL=$(curl -s "$APIBASE/repos/$REPO/releases/latest" | grep -o 'https://[^"]*\.\(tar\.zst\|tar\.gz\)' | head -n 1)
-          echo "Downloading Clang from: $CLANG_URL"
-          wget -q "$CLANG_URL" -O clang_archive
-          tar -xf clang_archive -C clang
-          rm -f clang_archive
-          if [ ! -d "clang/bin" ]; then
-            SUBDIR=$(find clang -maxdepth 2 -type d -name "bin" | head -n 1 | xargs dirname)
-            mv "$SUBDIR"/* clang/
-          fi
+          cd clang
+          RAW="https://githubusercontent.com"
+          curl -LO "$RAW/Neutron-Toolchains/antman/main/antman"
+          chmod +x antman
+          ./antman -S
 
       - name: Integrate KernelSU-Next
         working-directory: kernel
