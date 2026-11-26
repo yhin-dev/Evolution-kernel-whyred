@@ -32,37 +32,29 @@ jobs:
           ./antman -S
           ./antman --patch=glibc
 
-      - name: Integrate KernelSU-Next
+      - name: Integrate Official KernelSU
         working-directory: kernel
         run: |
           GH="https://github.com"
-          git clone --depth=1 "$GH/KernelSU-Next/KernelSU-Next.git" KernelSU-Next
-          bash KernelSU-Next/kernel/setup.sh
+          git clone --depth=1 "$GH/tiann/KernelSU.git" KernelSU
+          bash KernelSU/kernel/setup.sh
 
-      - name: Integrate NoMount
+      - name: Integrate NoMount v2.3.1
         working-directory: kernel
         run: |
           GH="https://github.com"
           git clone --depth=1 "$GH/maxsteeel/nomount.git" nomount_repo
-          if [ -f "nomount_repo/kernel/setup.sh" ]; then
-            bash nomount_repo/kernel/setup.sh
-          elif [ -f "nomount_repo/setup.sh" ]; then
-            bash nomount_repo/setup.sh
-          else
-            mkdir -p fs/nomount
-            cp -r nomount_repo/kernel/src/* fs/nomount/ 2>/dev/null || cp -r nomount_repo/src/* fs/nomount/
-            grep -q "nomount" fs/Kconfig || sed -i '/endmenu/i source "fs/nomount/Kconfig"' fs/Kconfig
-            grep -q "nomount" fs/Makefile || echo 'obj-$(CONFIG_NOMOUNT) += nomount/' >> fs/Makefile
-          fi
+          bash nomount_repo/kernel/setup.sh
           rm -rf nomount_repo
 
-      - name: Integrate SuSFS (4.19) & Fix Rejects
+      - name: Integrate SuSFS (4.19)
         working-directory: kernel
         run: |
           GL="https://gitlab.com"
           git clone --depth=1 -b kernel-4.19 "$GL/simonpunk/susfs4ksu.git" susfs_repo
           cp -r susfs_repo/kernel_patches/fs/* fs/
           cp -r susfs_repo/kernel_patches/include/linux/* include/linux/
+          patch -p1 --forward -F 5 < susfs_repo/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch || true
           patch -p1 --forward -F 5 < susfs_repo/kernel_patches/50_add_susfs_in_kernel-4.19.patch || true
 
           python3 - << 'EOF'
@@ -123,99 +115,10 @@ jobs:
           export KBUILD_BUILD_USER="yhin-dev"
           export KBUILD_BUILD_HOST="Evolution-Build"
 
-          echo "=== Available Whyred Defconfigs ==="
-          find arch/arm64/configs -name "*whyred*"
-
-          if [ -f "arch/arm64/configs/vendor/whyred-retrofit_defconfig" ]; then
-            DEFCONFIG="vendor/whyred-retrofit_defconfig"
-          elif [ -f "arch/arm64/configs/whyred-retrofit_defconfig" ]; then
-            DEFCONFIG="whyred-retrofit_defconfig"
-          elif [ -f "arch/arm64/configs/vendor/whyred-perf_defconfig" ]; then
-            DEFCONFIG="vendor/whyred-perf_defconfig"
-          else
-            DEFCONFIG="whyred_defconfig"
-          fi
-          echo "Selected DEFCONFIG: $DEFCONFIG"
-          # Pastikan Kconfig SuSFS terdaftar di drivers/kernelsu/Kconfig
-          if ! grep -q "config KSU_SUSFS" drivers/kernelsu/Kconfig; then
-            cat << 'EOF' >> drivers/kernelsu/Kconfig
-
-          menu "KernelSU - SUSFS"
-          config KSU_SUSFS
-              bool "KernelSU addon - SUSFS"
-              depends on KSU
-              default y
-
-          config KSU_SUSFS_SUS_PATH
-              bool "Enable to hide suspicious path"
-              depends on KSU_SUSFS
-              default y
-
-          config KSU_SUSFS_SUS_MOUNT
-              bool "Enable to hide suspicious mounts"
-              depends on KSU_SUSFS
-              default y
-
-          config KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
-              bool "Enable to hide KSU's default mounts automatically"
-              depends on KSU_SUSFS_SUS_MOUNT
-              default y
-
-          config KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
-              bool "Enable to hide suspicious bind mounts automatically"
-              depends on KSU_SUSFS_SUS_MOUNT
-              default y
-
-          config KSU_SUSFS_SUS_KSTAT
-              bool "Enable to spoof suspicious kstat"
-              depends on KSU_SUSFS
-              default y
-
-          config KSU_SUSFS_TRY_UMOUNT
-              bool "Enable to use ksu's try_umount"
-              depends on KSU_SUSFS
-              default y
-
-          config KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT
-              bool "Enable to add bind mounts to ksu's try_umount automatically"
-              depends on KSU_SUSFS_TRY_UMOUNT
-              default y
-
-          config KSU_SUSFS_SPOOF_UNAME
-              bool "Enable to spoof uname"
-              depends on KSU_SUSFS
-              default y
-
-          config KSU_SUSFS_ENABLE_LOG
-              bool "Enable logging suspected activity"
-              depends on KSU_SUSFS
-              default y
-
-          config KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
-              bool "Enable to automatically hide ksu and susfs symbols from /proc/kallsyms"
-              depends on KSU_SUSFS
-              default y
-
-          config KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
-              bool "Enable to spoof /proc/bootconfig or /proc/cmdline"
-              depends on KSU_SUSFS
-              default y
-
-          config KSU_SUSFS_OPEN_REDIRECT
-              bool "Enable to redirect a path to be opened with another path"
-              depends on KSU_SUSFS
-              default y
-          endmenu
-          EOF
-          fi
-
+          DEFCONFIG="vendor/whyred-perf_defconfig"
           make O=out ARCH=arm64 $DEFCONFIG
 
-          # Aktifkan KSU-Next, SuSFS, NoMount & Tuning via scripts/config langsung ke out/.config
           ./scripts/config --file out/.config \
-            -e KPROBES \
-            -e HAVE_KPROBES \
-            -e KPROBE_EVENTS \
             -e OVERLAY_FS \
             -e KSU \
             -e KSU_SUSFS \
@@ -240,7 +143,7 @@ jobs:
           make O=out ARCH=arm64 olddefconfig
 
           echo "=== VERIFYING FINAL CONFIG ==="
-          grep -E "CONFIG_KSU=|CONFIG_KSU_SUSFS=|CONFIG_NOMOUNT=|CONFIG_KPROBES=" out/.config
+          grep -E "CONFIG_KSU=|CONFIG_KSU_SUSFS=|CONFIG_NOMOUNT=" out/.config
           grep -q "CONFIG_KSU=y" out/.config || { echo "FATAL: CONFIG_KSU is NOT enabled!"; exit 1; }
           grep -q "CONFIG_KSU_SUSFS=y" out/.config || { echo "FATAL: CONFIG_KSU_SUSFS is NOT enabled!"; exit 1; }
           grep -q "CONFIG_NOMOUNT=y" out/.config || { echo "FATAL: CONFIG_NOMOUNT is NOT enabled!"; exit 1; }
