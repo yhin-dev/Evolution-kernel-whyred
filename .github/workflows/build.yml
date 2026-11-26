@@ -213,7 +213,6 @@ jobs:
 
           # Aktifkan KSU-Next, SuSFS, NoMount & Tuning via scripts/config langsung ke out/.config
           ./scripts/config --file out/.config \
-            -e MODULES \
             -e KPROBES \
             -e HAVE_KPROBES \
             -e KPROBE_EVENTS \
