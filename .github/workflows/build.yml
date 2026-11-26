@@ -26,8 +26,8 @@ jobs:
         run: |
           mkdir -p clang
           cd clang
-          RAW="https://githubusercontent.com"
-          curl -LO "$RAW/Neutron-Toolchains/antman/main/antman"
+          GH="https://github.com"
+          git clone --depth=1 "$GH/Neutron-Toolchains/antman.git" .
           chmod +x antman
           ./antman -S
 
