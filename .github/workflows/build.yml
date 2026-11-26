@@ -114,9 +114,18 @@ jobs:
           rm -f fs/namespace.c.rej fs/namespace.c.orig
           rm -rf susfs_repo
 
-      - name: Select Defconfig & Apply Daily/Gaming Tuning
+      - name: Select Defconfig & Compile Kernel
         working-directory: kernel
         run: |
+          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export KBUILD_BUILD_USER="yhin-dev"
+          export KBUILD_BUILD_HOST="Evolution-Build"
+
+          echo "=== Available Whyred Defconfigs ==="
+          find arch/arm64/configs -name "*whyred*"
+
           if [ -f "arch/arm64/configs/vendor/whyred-retrofit_defconfig" ]; then
             DEFCONFIG="vendor/whyred-retrofit_defconfig"
           elif [ -f "arch/arm64/configs/whyred-retrofit_defconfig" ]; then
@@ -126,44 +135,45 @@ jobs:
           else
             DEFCONFIG="whyred_defconfig"
           fi
-          echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
-
-          cat << 'EOF' >> arch/arm64/configs/$DEFCONFIG
-          CONFIG_KPROBES=y
-          CONFIG_HAVE_KPROBES=y
-          CONFIG_KPROBE_EVENTS=y
-          CONFIG_KSU=y
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
-          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_NOMOUNT=y
-          CONFIG_HZ_300=y
-          CONFIG_TCP_CONG_ADVANCED=y
-          CONFIG_TCP_CONG_BBR=y
-          CONFIG_DEFAULT_BBR=y
-          CONFIG_DEFAULT_TCP_CONG="bbr"
-          CONFIG_NET_SCH_FQ_CODEL=y
-          EOF
-
-      - name: Compile Kernel
-        working-directory: kernel
-        run: |
-          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export KBUILD_BUILD_USER="yhin-dev"
-          export KBUILD_BUILD_HOST="Evolution-Build"
+          echo "Selected DEFCONFIG: $DEFCONFIG"
 
           make O=out ARCH=arm64 $DEFCONFIG
+
+          # Aktifkan KSU-Next, SuSFS, NoMount & Tuning via scripts/config langsung ke out/.config
+          ./scripts/config --file out/.config \
+            -e MODULES \
+            -e KPROBES \
+            -e HAVE_KPROBES \
+            -e KPROBE_EVENTS \
+            -e OVERLAY_FS \
+            -e KSU \
+            -e KSU_SUSFS \
+            -e KSU_SUSFS_SUS_PATH \
+            -e KSU_SUSFS_SUS_MOUNT \
+            -e KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT \
+            -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
+            -e KSU_SUSFS_SUS_KSTAT \
+            -e KSU_SUSFS_TRY_UMOUNT \
+            -e KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT \
+            -e KSU_SUSFS_SPOOF_UNAME \
+            -e KSU_SUSFS_ENABLE_LOG \
+            -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
+            -e KSU_SUSFS_OPEN_REDIRECT \
+            -e NOMOUNT \
+            -e HZ_300 \
+            -e TCP_CONG_ADVANCED \
+            -e TCP_CONG_BBR \
+            -e DEFAULT_BBR \
+            -e NET_SCH_FQ_CODEL
+
+          make O=out ARCH=arm64 olddefconfig
+
+          echo "=== VERIFYING FINAL CONFIG ==="
+          grep -E "CONFIG_KSU=|CONFIG_KSU_SUSFS=|CONFIG_NOMOUNT=|CONFIG_KPROBES=" out/.config
+          grep -q "CONFIG_KSU=y" out/.config || { echo "FATAL: CONFIG_KSU is NOT enabled!"; exit 1; }
+          grep -q "CONFIG_KSU_SUSFS=y" out/.config || { echo "FATAL: CONFIG_KSU_SUSFS is NOT enabled!"; exit 1; }
+          grep -q "CONFIG_NOMOUNT=y" out/.config || { echo "FATAL: CONFIG_NOMOUNT is NOT enabled!"; exit 1; }
+
           make -j$(nproc --all) O=out \
             ARCH=arm64 \
             CC=clang \
