@@ -1,0 +1,255 @@
+
+name: Evolution Kernel - SukiSU Integration Audit v3
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_branch:
+        description: "whyred kernel source branch"
+        required: true
+        default: "back-st21-layered-sched-stable"
+        type: string
+
+      sukisu_ref:
+        description: "Pinned SukiSU commit"
+        required: true
+        default: "adf6e86d55229ad78a5f7758bdc43d92fd1c3729"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Evolution - Manual Hook Audit
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout whyred Kernel
+        uses: actions/checkout@v4
+        with:
+          repository: user-why-red/android_kernel_xiaomi_sdm660_419
+          ref: ${{ inputs.source_branch }}
+          fetch-depth: 1
+          path: kernel
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison flex make \
+            python3 python-is-python3 \
+            gcc-aarch64-linux-gnu \
+            gcc-arm-linux-gnueabi \
+            clang lld llvm \
+            libssl-dev libelf-dev \
+            device-tree-compiler \
+            cpio rsync zip unzip curl
+
+      - name: Prepare Pinned SukiSU Source
+        working-directory: kernel
+        env:
+          SUKISU_REF: ${{ inputs.sukisu_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          curl -fL \
+            https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh \
+            -o /tmp/sukisu-setup.sh
+
+          echo "===== SETUP SCRIPT HASH ====="
+          sha256sum /tmp/sukisu-setup.sh
+
+          bash /tmp/sukisu-setup.sh "$SUKISU_REF"
+
+          test -L drivers/kernelsu
+          test -d KernelSU
+
+          KSU_COMMIT="$(git -C KernelSU rev-parse HEAD)"
+
+          echo "Requested SukiSU: $SUKISU_REF"
+          echo "Actual SukiSU: $KSU_COMMIT"
+
+          if [ "$KSU_COMMIT" != "$SUKISU_REF" ]; then
+            echo "ERROR: SukiSU commit mismatch"
+            exit 1
+          fi
+
+          test -f drivers/kernelsu/Kconfig
+          test -f drivers/kernelsu/Makefile
+
+          echo "SukiSU source verification: PASS"
+
+      - name: Configure whyred Kernel
+        working-directory: kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          make O=out \
+            ARCH=arm64 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CC=clang \
+            LD=ld.lld \
+            vendor/whyred-perf_defconfig
+
+          scripts/config --file out/.config \
+            --enable KSU \
+            --enable KALLSYMS \
+            --set-str LOCALVERSION "-Evolution" \
+            --disable LOCALVERSION_AUTO \
+            --disable KPM
+
+          make O=out \
+            ARCH=arm64 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CC=clang \
+            LD=ld.lld \
+            olddefconfig
+
+      - name: Audit SukiSU Headers and Kernel Hooks
+        working-directory: kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          REPORT="../Evolution-SukiSU-Report-v3"
+          mkdir -p "$REPORT"
+
+          KSU_DIR="$(realpath drivers/kernelsu)"
+
+          {
+            echo "===== EVOLUTION KERNEL AUDIT V3 ====="
+            echo "Device: whyred"
+            echo "Kernel target: Linux 4.19.325"
+            echo "SukiSU mode: builtin"
+            echo "Kernel branch: ${{ inputs.source_branch }}"
+            echo "Kernel commit: $(git rev-parse HEAD)"
+            echo "SukiSU commit: $(git -C KernelSU rev-parse HEAD)"
+            echo "SukiSU directory: $KSU_DIR"
+            echo ""
+
+            echo "===== SOURCE STRUCTURE ====="
+
+            if [ -L drivers/kernelsu ]; then
+              echo "KSU symlink: FOUND"
+              readlink drivers/kernelsu
+            else
+              echo "KSU symlink: NOT VERIFIED"
+            fi
+
+            for f in Kconfig Makefile \
+              feature/sucompat.h \
+              feature/kernel_umount.h \
+              runtime/ksud.h; do
+
+              if [ -f "$KSU_DIR/$f" ]; then
+                echo "FOUND: $f"
+              else
+                echo "NOT FOUND: $f"
+              fi
+            done
+
+            echo ""
+            echo "===== KERNEL BUILD WIRING ====="
+
+            grep -n 'kernelsu' drivers/Makefile || true
+            grep -n 'drivers/kernelsu/Kconfig' drivers/Kconfig || true
+
+            echo ""
+            echo "===== SUKISU HOOK INVENTORY ====="
+
+            find "$KSU_DIR" -type f \
+              \( -name '*.h' -o -name '*.c' \) \
+              -print0 |
+              xargs -0 -r grep -nHE \
+              'ksu_[[:alnum:]_]*(handle|hook)[[:alnum:]_]*[[:space:]]*\(' \
+              || true
+
+            echo ""
+            echo "===== SUKISU HOOK DECLARATIONS ====="
+
+            find "$KSU_DIR" -type f -name '*.h' -print0 |
+              xargs -0 -r grep -nHE \
+              'ksu_[[:alnum:]_]*(handle|hook)[[:alnum:]_]*[[:space:]]*\(' \
+              || true
+
+            echo ""
+            echo "===== KERNEL MANUAL HOOK REFERENCES ====="
+
+            find fs kernel security drivers include \
+              -type f \
+              \( -name '*.c' -o -name '*.h' \) \
+              -print0 |
+              xargs -0 -r grep -nHE -C 2 \
+              'ksu_[[:alnum:]_]*(handle|hook)[[:alnum:]_]*[[:space:]]*\(' \
+              || true
+
+            echo ""
+            echo "===== RELEVANT KERNEL FUNCTIONS ====="
+
+            grep -nE \
+              'do_execveat_common|__do_execve_file|SYSCALL_DEFINE3\(faccessat|SYSCALL_DEFINE4\(newfstatat|SYSCALL_DEFINE4\(reboot' \
+              fs/exec.c fs/open.c fs/stat.c kernel/reboot.c \
+              || true
+
+            echo ""
+            echo "===== KERNEL CONFIG ====="
+
+            grep -E \
+              'CONFIG_(KSU|KSU_SUSFS|KPM|KALLSYMS|KALLSYMS_ALL|KPROBES|MODULES|LOCALVERSION)' \
+              out/.config || true
+
+            echo ""
+            echo "===== CONFIG VALIDATION ====="
+
+            if grep -q '^CONFIG_KSU=y$' out/.config; then
+              echo "KSU_CONFIG: PASS"
+            else
+              echo "KSU_CONFIG: FAIL"
+            fi
+
+            if grep -q 'obj-$(CONFIG_KSU) += kernelsu/' drivers/Makefile; then
+              echo "KSU_MAKEFILE_WIRING: PASS"
+            else
+              echo "KSU_MAKEFILE_WIRING: FAIL"
+            fi
+
+            if grep -q 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig; then
+              echo "KSU_KCONFIG_WIRING: PASS"
+            else
+              echo "KSU_KCONFIG_WIRING: FAIL"
+            fi
+
+            echo ""
+            echo "===== AUDIT CONCLUSION ====="
+            echo "This workflow inventories hook declarations and references."
+            echo "Hook signature compatibility requires manual review."
+            echo "An empty hook result means NOT VERIFIED, not automatic PASS."
+            echo "No manual hooks are inserted by this workflow."
+            echo "No kernel compilation or boot test is performed."
+            echo "SUSFS 2.4.0 and NoMount are not integrated here."
+
+          } | tee "$REPORT/report.txt"
+
+          cp out/.config "$REPORT/kernel.config"
+
+          git rev-parse HEAD > "$REPORT/kernel-commit.txt"
+          git -C KernelSU rev-parse HEAD > "$REPORT/sukisu-commit.txt"
+
+          sha256sum /tmp/sukisu-setup.sh \
+            > "$REPORT/setup-script-sha256.txt"
+
+      - name: Upload SukiSU Audit v3
+        uses: actions/upload-artifact@v4
+        with:
+          name: Evolution-Kernel-SukiSU-Audit-v3
+          path: Evolution-SukiSU-Report-v3/
+          if-no-files-found: error
+          retention-days: 14
